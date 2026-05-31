@@ -11,6 +11,7 @@ struct Editor {
     cursor_x: usize,
     cursor_y: usize,
     should_quit: bool,
+    filename: Option<String>,
 }
 
 impl Editor {
@@ -20,6 +21,7 @@ impl Editor {
             cursor_x: 0,
             cursor_y: 0,
             should_quit: false,
+            filename: None,
         }
     }
 
@@ -43,7 +45,12 @@ impl Editor {
 
     fn refresh_screen(&self, stdout: &mut io::Stdout) -> io::Result<()> {
         // Clear the screen and reset the cursor position to top-left
-        execute!(stdout, cursor::Hide, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+        execute!(
+            stdout,
+            cursor::Hide,
+            terminal::Clear(ClearType::All),
+            cursor::MoveTo(0, 0)
+        )?;
 
         // Draw the text buffer lines
         for (i, line) in self.lines.iter().enumerate() {
@@ -69,12 +76,20 @@ impl Editor {
                 // Global Controls
                 (KeyCode::Char('q'), KeyModifiers::CONTROL) => self.should_quit = true,
 
+                (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                    self.save_file().expect("Failed to save");
+                }
+
                 // Navigation Controls
                 (KeyCode::Left, _) => {
-                    if self.cursor_x > 0 { self.cursor_x -= 1; }
+                    if self.cursor_x > 0 {
+                        self.cursor_x -= 1;
+                    }
                 }
                 (KeyCode::Right, _) => {
-                    if self.cursor_x < self.lines[self.cursor_y].len() { self.cursor_x += 1; }
+                    if self.cursor_x < self.lines[self.cursor_y].len() {
+                        self.cursor_x += 1;
+                    }
                 }
                 (KeyCode::Up, _) => {
                     if self.cursor_y > 0 {
@@ -118,9 +133,41 @@ impl Editor {
         }
         Ok(())
     }
+
+    // Load file contents into the buffer
+    fn load_file(&mut self, path: &str) -> io::Result<()> {
+        let content = std::fs::read_to_string(path)?;
+        self.lines = content.lines().map(|s| s.to_string()).collect();
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.filename = Some(path.to_string());
+        Ok(())
+    }
+
+    // Save current buffer to disk
+    fn save_file(&self) -> io::Result<()> {
+        if let Some(ref path) = self.filename {
+            let content = self.lines.join("\n");
+            std::fs::write(path, content)?;
+        }
+        Ok(())
+    }
 }
 
 fn main() -> io::Result<()> {
     let mut editor = Editor::new();
+
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() > 1 {
+        let file_path = &args[1];
+        if let Err(e) = editor.load_file(file_path) {
+            eprintln!("Error opening file: {}", e);
+            // Decide if you want to exit or start empty
+            std::process::exit(1);
+        }
+    }
+
     editor.run()
 }
