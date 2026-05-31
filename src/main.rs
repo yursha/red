@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{self, ClearType},
 };
@@ -35,7 +35,12 @@ impl Editor {
         // Step 1: Initialize terminal state and enter Raw Mode
         terminal::enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, terminal::EnterAlternateScreen, cursor::Show)?;
+        execute!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            cursor::Show,
+            EnableBracketedPaste
+        )?;
 
         // Step 2: Core Render and Input Loop
         while !self.should_quit {
@@ -44,13 +49,20 @@ impl Editor {
         }
 
         // Step 3: Clean up and restore terminal state on exit
-        execute!(stdout, terminal::LeaveAlternateScreen)?;
+        execute!(
+            stdout,
+            terminal::LeaveAlternateScreen,
+            DisableBracketedPaste
+        )?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
 
     fn refresh_screen(&mut self, stdout: &mut io::Stdout) -> io::Result<()> {
-        self.debug_log(&format!("refresh_screen: Cursor(x: {}, y: {}), Offset: {}", self.cursor_x, self.cursor_y, self.row_offset));
+        self.debug_log(&format!(
+            "refresh_screen: Cursor(x: {}, y: {}), Offset: {}",
+            self.cursor_x, self.cursor_y, self.row_offset
+        ));
         let (_, rows) = terminal::size()?;
         let screen_rows = rows - 1; // Reserve one line for status bar
 
@@ -96,7 +108,10 @@ impl Editor {
         // Block execution until an event occurs
         match event::read()? {
             Event::Key(key_event) => {
-                self.debug_log(&format!("handle_input: Key: {:?}, Modifiers: {:?}", key_event.code, key_event.modifiers));
+                self.debug_log(&format!(
+                    "handle_input: Key: {:?}, Modifiers: {:?}",
+                    key_event.code, key_event.modifiers
+                ));
                 match (key_event.code, key_event.modifiers) {
                     // Global Controls
                     (KeyCode::Char('q'), KeyModifiers::CONTROL) => self.should_quit = true,
@@ -198,7 +213,9 @@ impl Editor {
     }
 
     fn debug_log(&self, message: &str) {
-        if !self.debug_mode { return; }
+        if !self.debug_mode {
+            return;
+        }
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
             .append(true)
@@ -215,7 +232,9 @@ fn main() -> io::Result<()> {
     let debug_mode = args.contains(&"--debug".to_string());
     let mut editor = Editor::new(debug_mode);
 
-    let file_path = args.iter().find(|arg| !arg.starts_with("--") && *arg != &args[0]);
+    let file_path = args
+        .iter()
+        .find(|arg| !arg.starts_with("--") && *arg != &args[0]);
     if let Some(path) = file_path {
         if let Err(e) = editor.load_file(path) {
             eprintln!("Error opening file: {}", e);
