@@ -10,6 +10,7 @@ struct Editor {
     lines: Vec<String>,
     cursor_x: usize,
     cursor_y: usize,
+    row_offset: usize,
     should_quit: bool,
     filename: Option<String>,
 }
@@ -20,6 +21,7 @@ impl Editor {
             lines: vec![String::new()], // Start with one empty line
             cursor_x: 0,
             cursor_y: 0,
+            row_offset: 0,
             should_quit: false,
             filename: None,
         }
@@ -43,7 +45,12 @@ impl Editor {
         Ok(())
     }
 
-    fn refresh_screen(&self, stdout: &mut io::Stdout) -> io::Result<()> {
+    fn refresh_screen(&mut self, stdout: &mut io::Stdout) -> io::Result<()> {
+        let (_, rows) = terminal::size()?;
+        let screen_rows = rows - 1; // Reserve one line for status bar
+
+        self.scroll(screen_rows);
+
         // Clear the screen and reset the cursor position to top-left
         execute!(
             stdout,
@@ -52,21 +59,32 @@ impl Editor {
             cursor::MoveTo(0, 0)
         )?;
 
+        // Only draw the range of lines visible in the viewport
+        let end = (self.row_offset + screen_rows as usize).min(self.lines.len());
         // Draw the text buffer lines
-        for (i, line) in self.lines.iter().enumerate() {
-            write!(stdout, "{}", line)?;
-            if i < self.lines.len() - 1 {
-                write!(stdout, "\r\n")?;
-            }
+        for i in self.row_offset..end {
+            write!(stdout, "{}\r\n", self.lines[i])?;
         }
 
-        // Reposition the physical terminal cursor to match our virtual editor state
+        // Adjust cursor position to be relative to the viewport
+        let relative_y = (self.cursor_y - self.row_offset) as u16;
         execute!(
             stdout,
-            cursor::MoveTo(self.cursor_x as u16, self.cursor_y as u16),
+            cursor::MoveTo(self.cursor_x as u16, relative_y),
             cursor::Show
         )?;
         stdout.flush()
+    }
+
+    fn scroll(&mut self, screen_rows: u16) {
+        // If cursor is above the visible area, scroll up
+        if self.cursor_y < self.row_offset {
+            self.row_offset = self.cursor_y;
+        }
+        // If cursor is below the visible area, scroll down
+        if self.cursor_y >= self.row_offset + screen_rows as usize {
+            self.row_offset = self.cursor_y - screen_rows as usize + 1;
+        }
     }
 
     fn process_keypress(&mut self) -> io::Result<()> {
