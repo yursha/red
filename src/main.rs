@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers},
@@ -13,10 +15,11 @@ struct Editor {
     row_offset: usize,
     should_quit: bool,
     filename: Option<String>,
+    debug_mode: bool,
 }
 
 impl Editor {
-    fn new() -> Self {
+    fn new(debug_mode: bool) -> Self {
         Self {
             lines: vec![String::new()], // Start with one empty line
             cursor_x: 0,
@@ -24,6 +27,7 @@ impl Editor {
             row_offset: 0,
             should_quit: false,
             filename: None,
+            debug_mode,
         }
     }
 
@@ -46,6 +50,7 @@ impl Editor {
     }
 
     fn refresh_screen(&mut self, stdout: &mut io::Stdout) -> io::Result<()> {
+        self.debug_log(&format!("refresh_screen: Cursor(x: {}, y: {}), Offset: {}", self.cursor_x, self.cursor_y, self.row_offset));
         let (_, rows) = terminal::size()?;
         let screen_rows = rows - 1; // Reserve one line for status bar
 
@@ -91,6 +96,7 @@ impl Editor {
         // Block execution until an event occurs
         match event::read()? {
             Event::Key(key_event) => {
+                self.debug_log(&format!("handle_input: Key: {:?}, Modifiers: {:?}", key_event.code, key_event.modifiers));
                 match (key_event.code, key_event.modifiers) {
                     // Global Controls
                     (KeyCode::Char('q'), KeyModifiers::CONTROL) => self.should_quit = true,
@@ -151,6 +157,7 @@ impl Editor {
                 }
             }
             Event::Paste(text) => {
+                self.debug_log(&format!("handle_input: Paste length: {}", text.len()));
                 for c in text.chars() {
                     if c == '\n' {
                         // Handle newlines within the paste
@@ -189,21 +196,31 @@ impl Editor {
         }
         Ok(())
     }
+
+    fn debug_log(&self, message: &str) {
+        if !self.debug_mode { return; }
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("debug.log")
+        {
+            let _ = writeln!(file, "{}", message);
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
-    let mut editor = Editor::new();
-
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() > 1 {
-        let file_path = &args[1];
-        if let Err(e) = editor.load_file(file_path) {
+    let debug_mode = args.contains(&"--debug".to_string());
+    let mut editor = Editor::new(debug_mode);
+
+    let file_path = args.iter().find(|arg| !arg.starts_with("--") && *arg != &args[0]);
+    if let Some(path) = file_path {
+        if let Err(e) = editor.load_file(path) {
             eprintln!("Error opening file: {}", e);
-            // Decide if you want to exit or start empty
             std::process::exit(1);
         }
     }
-
     editor.run()
 }
